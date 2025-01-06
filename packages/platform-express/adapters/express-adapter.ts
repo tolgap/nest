@@ -57,7 +57,7 @@ export class ExpressAdapter extends AbstractHttpAdapter<
 > {
   private readonly routerMethodFactory = new RouterMethodFactory();
   private readonly logger = new Logger(ExpressAdapter.name);
-  private readonly openConnections = new Set<Duplex>();
+  private forceCloseConnections = false;
 
   constructor(instance?: any) {
     super(instance || express());
@@ -179,11 +179,14 @@ export class ExpressAdapter extends AbstractHttpAdapter<
   }
 
   public close() {
-    this.closeOpenConnections();
-
     if (!this.httpServer) {
       return undefined;
     }
+
+    if (this.forceCloseConnections) {
+      this.closeOpenConnections();
+    }
+
     return new Promise(resolve => this.httpServer.close(resolve));
   }
 
@@ -263,9 +266,7 @@ export class ExpressAdapter extends AbstractHttpAdapter<
       this.httpServer = http.createServer(this.getInstance());
     }
 
-    if (options?.forceCloseConnections) {
-      this.trackOpenConnections();
-    }
+    this.forceCloseConnections = options?.forceCloseConnections ?? false;
   }
 
   public registerParserMiddleware(prefix?: string, rawBody?: boolean) {
@@ -454,19 +455,8 @@ export class ExpressAdapter extends AbstractHttpAdapter<
     throw new Error('Unsupported versioning options');
   }
 
-  private trackOpenConnections() {
-    this.httpServer.on('connection', (socket: Duplex) => {
-      this.openConnections.add(socket);
-
-      socket.on('close', () => this.openConnections.delete(socket));
-    });
-  }
-
-  private closeOpenConnections() {
-    for (const socket of this.openConnections) {
-      socket.destroy();
-      this.openConnections.delete(socket);
-    }
+  private closeOpenConnections(): void {
+    this.httpServer.closeAllConnections();
   }
 
   private isMiddlewareApplied(name: string): boolean {
